@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Gameday Answer Highlighter",
+  "version": "1.0.0",
+  "description": "Evidenzia risposte probabili in simulatori HTML autorizzati usando dataset CSV, regole testuali e memoria locale.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dataset.csv"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "config.js",
+        "dataset-loader.js",
+        "parser.js",
+        "matcher.js",
+        "rules-engine.js",
+        "learner.js",
+        "highlighter.js",
+        "content.js"
+      ],
+      "css": [
+        "style.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
