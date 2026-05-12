@@ -292,9 +292,57 @@
     };
   }
 
+  function selectedAnswerCount(questions) {
+    return (questions || []).reduce(function (sum, question) {
+      return sum + ((question.selectedAnswers || []).length ? 1 : 0);
+    }, 0);
+  }
+
+  function isReviewOnlyQuestion(question) {
+    var text = normalizeText(question && question.questionText || "");
+    return /^(accetto|informativa|togliere la spunta|sono consapevole|dichiaro|presa visione|non essere robot)/.test(text) ||
+      /cliccare sul pulsante modifica|cliccare sul pulsante invia|riepilogo dati inseriti/.test(text);
+  }
+
+  function meaningfulQuestionCount(questions) {
+    return (questions || []).filter(function (question) {
+      return question && question.hash && !isReviewOnlyQuestion(question);
+    }).length;
+  }
+
+  function isReviewPage() {
+    var text = pageText();
+    return text.indexOf("riepilogo dati inseriti") !== -1 ||
+      (text.indexOf("cliccare sul pulsante modifica") !== -1 && text.indexOf("cliccare sul pulsante invia") !== -1);
+  }
+
+  function shouldPreservePreviousAttempt(questions) {
+    var previous = memory.lastAttempt;
+    if (!previous || !previous.questions || !previous.questions.length || !isReviewPage()) {
+      return false;
+    }
+    return meaningfulQuestionCount(previous.questions) > meaningfulQuestionCount(questions) ||
+      selectedAnswerCount(previous.questions) > selectedAnswerCount(questions);
+  }
+
   async function captureAttempt(records, reason) {
     await init();
     var questions = (records || []).map(snapshotRecord);
+    questions.forEach(function (question) {
+      ensureQuestion(question);
+      if (question.selectedAnswers && question.selectedAnswers.length) {
+        memory.learnedQuestions[question.hash].candidateAnswers = uniquePush(memory.learnedQuestions[question.hash].candidateAnswers, question.selectedAnswers, performanceConfig.maxCandidateAnswersPerQuestion || 20);
+      }
+    });
+    if (shouldPreservePreviousAttempt(questions)) {
+      addEvent("snapshot_preserved", {
+        reason: reason || "snapshot",
+        count: questions.length,
+        preservedAttemptId: memory.lastAttempt.id
+      });
+      await save();
+      return;
+    }
     memory.lastAttempt = {
       id: "attempt_" + Date.now(),
       createdAt: now(),
@@ -302,12 +350,6 @@
       reason: reason || "snapshot",
       questions: questions
     };
-    questions.forEach(function (question) {
-      ensureQuestion(question);
-      if (question.selectedAnswers && question.selectedAnswers.length) {
-        memory.learnedQuestions[question.hash].candidateAnswers = uniquePush(memory.learnedQuestions[question.hash].candidateAnswers, question.selectedAnswers, performanceConfig.maxCandidateAnswersPerQuestion || 20);
-      }
-    });
     addEvent("snapshot", { reason: reason || "snapshot", count: questions.length });
     await save();
   }

@@ -85,17 +85,18 @@
       };
     }
 
-    if (isTextRecord(record) && meta.explicitAnswer) {
+    if (isTextRecord(record)) {
       return {
         source: "rules",
         answerText: answer,
         answerTexts: [answer],
         confidence: Math.min(0.99, confidence),
         reason: reason,
-        explicitAnswer: true,
+        explicitAnswer: !!meta.explicitAnswer,
         explicitAnswerText: meta.explicitAnswerText || answer,
         explicitRawText: meta.explicitRawText || "",
-        textHighlightOnly: true
+        textAnswerHint: true,
+        textHighlightOnly: !!meta.explicitAnswer
       };
     }
 
@@ -248,7 +249,7 @@
       if (value.length < 2) {
         return false;
       }
-      if (/^(gg\/mm\/aaaa|dd\/mm\/yyyy|03\/06\/2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
+      if (/^(gg[\/-]mm[\/-]aaaa|dd[\/-]mm[\/-]yyyy|gg[\/-]mm|dd[\/-]mm|03[\/-]06[\/-]2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
         return false;
       }
       return normalized.indexOf(value) !== -1 || candidate.source === "keyword";
@@ -271,13 +272,22 @@
 
   function explicitSearchText(record) {
     var text = record.questionText || "";
-    if (record && record.container) {
+    if (record && record.container && containerLooksScoped(record)) {
       var containerText = compactText(record.container.innerText || record.container.textContent || "");
       if (containerText && containerText.indexOf(text) === -1) {
         text = compactText(text + " " + containerText);
       }
     }
     return text;
+  }
+
+  function containerLooksScoped(record) {
+    if (!record || !record.container || !record.container.querySelectorAll) {
+      return false;
+    }
+    var controls = record.controls || [];
+    var count = record.container.querySelectorAll("input, select, textarea").length;
+    return count <= Math.max(controls.length + 2, 3);
   }
 
   extractExplicitAnswerFromQuestion = function (record) {
@@ -324,7 +334,7 @@
       if (value.length < 2) {
         return false;
       }
-      if (/^(gg\/mm\/aaaa|dd\/mm\/yyyy|03\/06\/2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
+      if (/^(gg[\/-]mm[\/-]aaaa|dd[\/-]mm[\/-]yyyy|gg[\/-]mm|dd[\/-]mm|03[\/-]06[\/-]2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
         return false;
       }
       return normalized.indexOf(value) !== -1 || candidate.source === "keyword" || candidate.source === "trattini";
@@ -386,7 +396,7 @@
     add(record.questionText || "");
     add(record.canonicalQuestion || "");
     add(record.normalizedQuestion || "");
-    if (explicitConfig.searchContainerText !== false) {
+    if (explicitConfig.searchContainerText !== false && containerLooksScoped(record)) {
       add(getCleanContainerText(record.container, record));
     }
     return texts;
@@ -557,7 +567,7 @@
       if (value.length < 2) {
         return false;
       }
-      if (/^(gg\/mm\/aaaa|dd\/mm\/yyyy|03\/06\/2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
+      if (/^(gg[\/-]mm[\/-]aaaa|dd[\/-]mm[\/-]yyyy|gg[\/-]mm|dd[\/-]mm|03[\/-]06[\/-]2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
         return false;
       }
       return normalized.indexOf(value) !== -1 || candidate.source === "keyword" || candidate.source === "trattini" || candidate.source === "dopo due punti";
@@ -628,7 +638,7 @@
       if (value.length < 1) {
         return false;
       }
-      if (/^(gg\/mm\/aaaa|dd\/mm\/yyyy|03\/06\/2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
+      if (/^(gg[\/-]mm[\/-]aaaa|dd[\/-]mm[\/-]yyyy|gg[\/-]mm|dd[\/-]mm|03[\/-]06[\/-]2026|123456789j)$/.test(value) && candidate.source !== "keyword") {
         return false;
       }
       return normalized.indexOf(value) !== -1 || candidate.source === "keyword" || candidate.source === "trattini" || candidate.source === "dopo due punti";
@@ -667,7 +677,7 @@
     var names = Object.keys(sites);
     for (var i = 0; i < names.length; i += 1) {
       var name = names[i];
-      if (new RegExp("\\b" + name + "\\b").test(normalized) && /\bsito|indirizzo|url\b/.test(normalized)) {
+      if (new RegExp("\\b" + name + "\\b").test(normalized) && /\bsito|indirizzo|url|web|pagina|portale\b/.test(normalized)) {
         return sites[name];
       }
     }
@@ -676,10 +686,10 @@
 
   function extractQuoted(text) {
     var out = [];
-    var regex = /["'“”‘’]([^"'“”‘’]{2,})["'“”‘’]/g;
+    var regex = /["\u201c\u201d]([^"\u201c\u201d]{1,160})["\u201c\u201d]|(?:^|[^\p{L}\p{N}])['\u2018\u2019]([^'\u2018\u2019]{1,160})['\u2018\u2019](?=$|[^\p{L}\p{N}])/gu;
     var match;
     while ((match = regex.exec(text))) {
-      out.push(compactText(match[1]));
+      out.push(compactText(match[1] || match[2]));
     }
     return out;
   }
@@ -692,13 +702,23 @@
     }
 
     var urls = extractUrls(text);
-    if (urls.length && (kind === "url" || kind === "domain" || /url|sito|indirizzo/.test(normalizeText(text)))) {
+    if (urls.length && (kind === "url" || kind === "domain" || /url|sito|indirizzo|web|pagina|portale/.test(normalizeText(text)))) {
       return urls[0].replace(/[.,;:!?]+$/, "");
+    }
+
+    var namedQuoted = text.match(/\b(?:scritta|stringa|parola|testo|codice|url|sito|indirizzo|di)\s+["'\u201c\u201d\u2018\u2019]([^"'\u201c\u201d\u2018\u2019]{1,160})["'\u201c\u201d\u2018\u2019]/i);
+    if (namedQuoted) {
+      return compactText(namedQuoted[1]);
     }
 
     var quoted = extractQuoted(text);
     if (quoted.length) {
       return quoted[quoted.length - 1];
+    }
+
+    var wordAfterKeyword = text.match(/\b(?:parola|nome|stringa|testo|codice)\s+([a-zA-Z0-9+@#._-]{1,80})\b/i);
+    if (wordAfterKeyword && !/^(senza|con|non|considerando|ignorando|partendo)$/i.test(wordAfterKeyword[1])) {
+      return wordAfterKeyword[1];
     }
 
     var codes = extractCodes(text).filter(function (code) {
@@ -716,8 +736,7 @@
       }
     }
 
-    var wordTarget = text.match(/\b(?:parola|nome|stringa|codice)\s+([a-zA-Z0-9+@#._-]{2,80})\b/i);
-    return wordTarget ? wordTarget[1] : "";
+    return "";
   }
 
   function removeVowels(text) {
@@ -728,8 +747,27 @@
     return (String(text || "").match(/[aeiouAEIOU\u00e0\u00e8\u00e9\u00ec\u00f2\u00f3\u00f9\u00c0\u00c8\u00c9\u00cc\u00d2\u00d3\u00d9]/g) || []).join("");
   }
 
+  function missingVowels(text) {
+    var normalized = normalizeText(text);
+    var present = new Set((normalized.match(/[aeiou]/g) || []));
+    return ["a", "e", "i", "o", "u"].filter(function (vowel) {
+      return !present.has(vowel);
+    }).map(function (vowel) {
+      return vowel.toUpperCase();
+    }).join(" & ");
+  }
+
   function reverseString(text) {
     return Array.from(String(text || "")).reverse().join("");
+  }
+
+  function wordInitials(text) {
+    return String(text || "")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(function (word) { return word.charAt(0).toUpperCase(); })
+      .join("-");
   }
 
   function parseN(text) {
@@ -745,6 +783,10 @@
     var trailing = normalized.match(/\b(\d{1,2}|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+caratteri\b/);
     if (trailing) {
       return NUMBER_WORDS[trailing[1]] || Number(trailing[1]);
+    }
+    var leading = normalized.match(/\b(\d{1,2}|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+(?:caratteri|lettere|iniziali)\b/);
+    if (leading) {
+      return NUMBER_WORDS[leading[1]] || Number(leading[1]);
     }
     return null;
   }
@@ -886,11 +928,15 @@
     var match = value.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})\b/);
     if (match) {
       var year = match[3].length === 2 ? "20" + match[3] : match[3];
-      return ("0" + match[1]).slice(-2) + "/" + ("0" + match[2]).slice(-2) + "/" + year;
+      return ("0" + match[1]).slice(-2) + "-" + ("0" + match[2]).slice(-2) + "-" + year;
     }
     var iso = value.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
     if (iso) {
-      return ("0" + iso[3]).slice(-2) + "/" + ("0" + iso[2]).slice(-2) + "/" + iso[1];
+      return ("0" + iso[3]).slice(-2) + "-" + ("0" + iso[2]).slice(-2) + "-" + iso[1];
+    }
+    var dayMonth = value.match(/\b(\d{1,2})[\/.-](\d{1,2})\b/);
+    if (dayMonth) {
+      return ("0" + dayMonth[1]).slice(-2) + "-" + ("0" + dayMonth[2]).slice(-2);
     }
     return "";
   }
@@ -934,8 +980,8 @@
     var answer;
     var n;
 
-    if (/indirizzo del sito|url richiesto|indirizzo sito/.test(normalized) &&
-        !/senza vocali|senza consonanti|al contrario|inverti|inverso|lettere minuscole|in minuscolo|lettere maiuscole|in maiuscolo|senza spazi|senza simboli|senza punteggiatura|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|lettere pari|lettere dispari/.test(normalized)) {
+    if (/indirizzo del sito|url richiesto|indirizzo sito|indirizzo web|pagina web/.test(normalized) &&
+        !/senza vocali|vocali assenti|senza consonanti|al contrario|inverti|inverso|lettere minuscole|in minuscolo|lettere maiuscole|in maiuscolo|senza spazi|non considerando gli spazi|senza simboli|senza punteggiatura|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|lettere pari|lettere dispari/.test(normalized)) {
       target = extractTarget(record, "url");
       return target ? compatibleSuggestion(record, target, 0.94, "indirizzo del sito") : null;
     }
@@ -944,10 +990,20 @@
       answer = extractDomain(target);
       return answer ? compatibleSuggestion(record, answer, 0.94, "dominio estratto da URL") : null;
     }
+    if (/vocali assenti|vocali mancanti/.test(normalized)) {
+      target = extractTarget(record, "string");
+      answer = missingVowels(target);
+      return target && answer ? compatibleSuggestion(record, answer, 0.94, "vocali assenti") : null;
+    }
     if (/senza vocali/.test(normalized)) {
       target = extractTarget(record, "string");
       answer = removeVowels(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.93, "rimozione vocali") : null;
+    }
+    if (/consonanti/.test(normalized) && /al contrario|inverti|inverso|ordine inverso/.test(normalized)) {
+      target = extractTarget(record, "string");
+      answer = reverseString(removeVowels(target));
+      return target && answer ? compatibleSuggestion(record, answer, 0.94, "consonanti al contrario") : null;
     }
     if (/senza consonanti/.test(normalized)) {
       target = extractTarget(record, "string");
@@ -969,7 +1025,7 @@
       answer = target.toUpperCase();
       return target && answer ? compatibleSuggestion(record, answer, 0.91, "maiuscole") : null;
     }
-    if (/senza spazi/.test(normalized)) {
+    if (/senza spazi|non considerando gli spazi|ignorando gli spazi/.test(normalized)) {
       target = extractTarget(record, "string");
       answer = withoutSpaces(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.91, "spazi rimossi") : null;
@@ -979,14 +1035,25 @@
       answer = withoutSymbols(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.90, "simboli rimossi") : null;
     }
+    if (/iniziali delle parole|iniziali di queste parole|iniziali delle seguenti parole/.test(normalized)) {
+      target = extractTarget(record, "string");
+      answer = wordInitials(target);
+      return target && answer ? compatibleSuggestion(record, answer, 0.94, "iniziali delle parole") : null;
+    }
+    if (/(prim[ie].*partendo dalla fine|partendo dalla fine.*prim[ie]|dalla fine.*prim[ie])/.test(normalized)) {
+      n = parseN(text);
+      target = extractTarget(record, /codice identificativo/.test(normalized) ? "code" : "string");
+      answer = n && target ? Array.from(target).reverse().slice(0, n).join("") : "";
+      return answer ? compatibleSuggestion(record, answer, 0.94, "primi " + n + " caratteri partendo dalla fine") : null;
+    }
     if (/ultim[ie]|caratteri finali/.test(normalized)) {
       n = parseN(text);
       target = extractTarget(record, /codice identificativo/.test(normalized) ? "code" : "string");
       answer = n && target ? Array.from(target).slice(-n).join("") : "";
       return answer ? compatibleSuggestion(record, answer, 0.93, "ultimi " + n + " caratteri") : null;
     }
-    if (/prim[ie]|caratteri iniziali/.test(normalized)) {
-      n = parseN(text);
+    if (/prim[ie]|caratteri iniziali|carattere iniziale/.test(normalized)) {
+      n = parseN(text) || (/carattere iniziale/.test(normalized) ? 1 : null);
       target = extractTarget(record, /codice identificativo/.test(normalized) ? "code" : "string");
       answer = n && target ? Array.from(target).slice(0, n).join("") : "";
       return answer ? compatibleSuggestion(record, answer, 0.93, "primi " + n + " caratteri") : null;
@@ -1009,13 +1076,27 @@
       return null;
     }
 
+    var normalized = normalizeText(record.questionText);
+    var stringSuggestion = null;
+    var hasStringTransform = /senza vocali|vocali assenti|vocali mancanti|senza consonanti|al contrario|inverti|inverso|lettere minuscole|in minuscolo|lettere maiuscole|in maiuscolo|senza spazi|non considerando gli spazi|ignorando gli spazi|senza simboli|senza punteggiatura|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|carattere iniziale|iniziali delle parole|partendo dalla fine|lettere pari|lettere dispari|\bdominio\b/.test(normalized);
+    var dateSuggestion = solveDate(record);
+    if (dateSuggestion && dateSuggestion.confidence > 0 && isTextRecord(record) && !hasStringTransform) {
+      return dateSuggestion;
+    }
+
+    if (hasStringTransform) {
+      stringSuggestion = solveStringRule(record);
+      if (stringSuggestion && stringSuggestion.confidence > 0) {
+        return stringSuggestion;
+      }
+    }
+
     var explicit = extractExplicitAnswerFromQuestion(record);
     if (explicit && explicit.confidence > 0) {
       return explicit;
     }
 
-    var normalized = normalizeText(record.questionText);
-    var stringSuggestion = solveStringRule(record);
+    stringSuggestion = stringSuggestion || solveStringRule(record);
     if (stringSuggestion && stringSuggestion.confidence > 0) {
       return stringSuggestion;
     }
@@ -1024,7 +1105,7 @@
       return solveMathFromOptions(record) || solveMathFromText(record);
     }
 
-    return solveDate(record) || solveIdentity(record);
+    return dateSuggestion || solveIdentity(record);
   }
 
   GH.RulesEngine = {

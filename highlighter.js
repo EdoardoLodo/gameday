@@ -55,10 +55,13 @@
 
   function clearPreviousHighlights(root) {
     var scope = root || document;
-    Array.prototype.slice.call(scope.querySelectorAll(".gameday-suggested-answer, .gameday-wrong-answer")).forEach(function (element) {
-      element.classList.remove("gameday-suggested-answer", "gameday-wrong-answer");
+    Array.prototype.slice.call(scope.querySelectorAll(".gameday-suggested-answer, .gameday-wrong-answer, .gameday-text-answer-field")).forEach(function (element) {
+      element.classList.remove("gameday-suggested-answer", "gameday-wrong-answer", "gameday-text-answer-field");
     });
     Array.prototype.slice.call(scope.querySelectorAll(".gameday-explicit-answer")).forEach(unwrapExplicitSpan);
+    Array.prototype.slice.call(scope.querySelectorAll(".gameday-text-answer-hint")).forEach(function (element) {
+      element.remove();
+    });
     Array.prototype.slice.call(scope.querySelectorAll("[data-gameday-original-title], [data-gameday-suggestion]")).forEach(restoreTitle);
     appliedByRecord = new Map();
   }
@@ -74,8 +77,12 @@
         unwrapExplicitSpan(element);
         return;
       }
+      if (type === "textHint") {
+        element.remove();
+        return;
+      }
       if (element.classList) {
-        element.classList.remove("gameday-suggested-answer", "gameday-wrong-answer");
+        element.classList.remove("gameday-suggested-answer", "gameday-wrong-answer", "gameday-text-answer-field");
       }
       restoreTitle(element);
     });
@@ -349,6 +356,74 @@
     return [{ element: span, type: "explicit" }];
   }
 
+  function applyTextHint(record, suggestion) {
+    var control = (record.controls || [])[0];
+    var answer = suggestion.answerText || "";
+    if (!control || !answer) {
+      return [];
+    }
+    var elements = [];
+    if (!control.hasAttribute("data-gameday-original-title")) {
+      control.setAttribute("data-gameday-original-title", control.getAttribute("title") || "");
+    }
+    control.setAttribute("title", "Risposta suggerita: " + answer);
+    control.setAttribute("data-gameday-suggestion", answer);
+    control.classList.add("gameday-text-answer-field");
+    elements.push(control);
+
+    var hint = document.createElement("span");
+    hint.className = "gameday-text-answer-hint";
+    hint.textContent = "Risposta: " + answer;
+    hint.setAttribute("role", "button");
+    hint.setAttribute("tabindex", "0");
+    hint.setAttribute("title", "Clicca per inserire questa risposta nel campo");
+    function dateToIso(value) {
+      var text = String(value || "").trim();
+      var dmy = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+      if (dmy) {
+        var year = dmy[3].length === 2 ? "20" + dmy[3] : dmy[3];
+        return year + "-" + ("0" + dmy[2]).slice(-2) + "-" + ("0" + dmy[1]).slice(-2);
+      }
+      var dayMonth = text.match(/^(\d{1,2})[\/.-](\d{1,2})$/);
+      if (dayMonth) {
+        return new Date().getFullYear() + "-" + ("0" + dayMonth[2]).slice(-2) + "-" + ("0" + dayMonth[1]).slice(-2);
+      }
+      var iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      return iso ? iso[1] + "-" + ("0" + iso[2]).slice(-2) + "-" + ("0" + iso[3]).slice(-2) : "";
+    }
+    function setControlValue(value) {
+      var nextValue = control.type === "date" ? (dateToIso(value) || value) : value;
+      var descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value");
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(control, nextValue);
+      } else {
+        control.value = nextValue;
+      }
+    }
+    function fillControl() {
+      control.focus();
+      setControlValue(answer);
+      control.dispatchEvent(new Event("input", { bubbles: true }));
+      control.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    hint.addEventListener("click", fillControl);
+    hint.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        fillControl();
+      }
+    });
+    if (control.parentNode) {
+      if (control.nextSibling) {
+        control.parentNode.insertBefore(hint, control.nextSibling);
+      } else {
+        control.parentNode.appendChild(hint);
+      }
+      elements.push({ element: hint, type: "textHint" });
+    }
+    return elements;
+  }
+
   function signatureForSuggestion(record, suggestion) {
     return [
       record.hash,
@@ -413,7 +488,7 @@
       } else if (type === "select") {
         elements = elements.concat(applySelect(record, suggestion));
       } else if (isTextRecord(record)) {
-        // Text inputs are never decorated. Explicit text highlight above is the only allowed aid.
+        elements = elements.concat(applyTextHint(record, suggestion));
       }
 
       if (elements.length) {

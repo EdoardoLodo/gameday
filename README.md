@@ -56,17 +56,17 @@ siteScope: {
     "simulatoreclickday.it",
     "*.simulatoreclickday.it"
   ],
-  allowAllHosts: false
+  allowAllHosts: true
 }
 ```
 
-Per altri ambienti autorizzati aggiungi il dominio in `allowedHosts`.
+La modalita attuale replica l'estensione di riferimento caricandosi su tutti gli URL. Per limitarla di nuovo ai soli ambienti autorizzati, imposta `allowAllHosts: false` e aggiungi eventuali domini in `allowedHosts`.
 
 ## Evidenziazioni
 
 Radio e checkbox ricevono verde sulla risposta suggerita. Le checkbox possono ricevere rosso sulle risposte note errate o sulle altre opzioni solo quando il set e molto sicuro. I select provano a evidenziare solo la `option`; il `select` non viene colorato e non riceve `title`.
 
-Textbox, textarea, number, date, time, url, tel e search non vengono evidenziati e non vengono mai compilati. Se la risposta e esplicita nel testo della domanda, viene evidenziato solo quel testo nella domanda.
+Textbox, textarea, number, date, time, url, tel e search non vengono mai compilati. Quando una regola, una risposta esplicita o una memoria locale trova la risposta, il campo riceve un bordo verde e un suggerimento testuale accanto al campo. Se la risposta e gia scritta nella domanda, viene evidenziato anche quel testo nella domanda.
 
 ## Training Locale
 
@@ -77,7 +77,7 @@ La memoria resta solo in `chrome.storage.local`:
 - pagina finale positiva: le risposte dell'ultimo tentativo diventano `correctAnswers`;
 - ritorno con errori visibili: le risposte selezionate diventano `wrongAnswers`.
 
-Nei flussi multi-step, i click manuali su Avanti/Continua/Prosegui/Invia/Conferma salvano lo step corrente. Quando viene rilevata la pagina finale, le risposte dell'ultimo tentativo vengono promosse.
+Nei flussi multi-step, i click manuali su Avanti/Continua/Prosegui/Invia/Conferma salvano lo step corrente. Le pagine di riepilogo non sovrascrivono l'ultimo tentativo utile, cosi quando viene rilevata la pagina finale vengono promosse le risposte delle domande vere e non solo le checkbox di conferma.
 
 ## Debug Console
 

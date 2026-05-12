@@ -23,7 +23,7 @@
         "simulatoreclickday.it",
         "*.simulatoreclickday.it"
       ],
-      allowAllHosts: false
+      allowAllHosts: true
     },
 
     datasetTrust: {

@@ -327,13 +327,23 @@
     });
   }
 
+  function exactQuestionMatch(record, item) {
+    var currentNormalized = record.normalizedQuestion || normalizeQuestion(record.questionText || "");
+    var currentCanonical = record.canonicalQuestion || canonicalQuestionText(record.questionText || "");
+    var itemNormalized = item.normalizedQuestion || normalizeQuestion(item.questionText || "");
+    var itemCanonical = item.canonicalQuestion || canonicalQuestionText(item.questionText || "");
+    return !!(record.hash && (record.hash === item.hash || record.hash === item.stableHash)) ||
+      !!(currentNormalized && itemNormalized && currentNormalized === itemNormalized) ||
+      !!(currentCanonical && itemCanonical && currentCanonical === itemCanonical);
+  }
+
   function isDatasetItemUsableForRecord(record, item) {
     if (!item || item.isReliable === false) {
       return false;
     }
     if (utils.isTextInputType && utils.isTextInputType(record.inputTypes)) {
       var answers = item.correctAnswers && item.correctAnswers.length ? item.correctAnswers : (item.lastSelectedAnswers || item.candidateAnswers || []);
-      return answerPresentInQuestion(record, answers.join(" | "));
+      return answerPresentInQuestion(record, answers.join(" | ")) || exactQuestionMatch(record, item);
     }
     return true;
   }
@@ -554,6 +564,14 @@
       if (candidate.answerKind === "lastSelected" && (scoring.exactHash || scoring.exactNormalized || scoring.exactCanonical)) {
         confidence = Math.max(confidence, trustConfig().lastSelectedExactQuestionConfidence || 0.80);
       }
+      if (isTextRecord(record) && (scoring.exactHash || scoring.exactNormalized || scoring.exactCanonical)) {
+        if (candidate.answerKind === "correct") {
+          confidence = Math.max(confidence, 0.96);
+        } else if (item.source === "local") {
+          confidence = Math.max(confidence, candidate.answerKind === "candidate" ? 0.86 : 0.82);
+        }
+        reason += " / domanda testo esatta";
+      }
       if (isChoiceRecord(record) && optionScore >= 0.92) {
         confidence = Math.min(0.99, confidence + (candidate.answerKind === "lastSelected" ? 0.04 : 0.08));
         if (scoring.score >= 0.55) {
@@ -569,6 +587,11 @@
       }
       if (candidate.answerKind === "lastSelected") {
         confidence = Math.min(confidence, (scoring.exactHash || scoring.exactNormalized || scoring.exactCanonical) ? (trustConfig().lastSelectedExactQuestionConfidence || 0.80) : 0.74);
+      }
+      if ((candidate.answerKind === "lastSelected" || candidate.answerKind === "candidate") &&
+          !(scoring.exactHash || scoring.exactNormalized || scoring.exactCanonical)) {
+        confidence = Math.min(confidence, 0.68);
+        reason += " / fallback debole solo fuzzy";
       }
       if (isChoiceRecord(record) && optionScore < 0.78) {
         confidence = Math.min(confidence, 0.35);
@@ -590,6 +613,8 @@
         targetOptions: candidate.optionPresence ? candidate.optionPresence.targetOptions : [],
         wrongAnswers: list(item.wrongAnswers),
         answerSetCertain: candidate.answerKind === "correct" || confidence >= (config.strongConfidenceThreshold || 0.88),
+        exactQuestion: scoring.exactHash || scoring.exactNormalized || scoring.exactCanonical,
+        textAnswerHint: isTextRecord(record),
         datasetItem: item
       };
 
@@ -651,9 +676,34 @@
     }
 
     if (isTextRecord(record)) {
-      if (ruleSuggestion && ruleSuggestion.explicitAnswer && ruleSuggestion.confidence >= threshold) {
+      if (ruleSuggestion && ruleSuggestion.answerText && ruleSuggestion.confidence >= threshold) {
         return Object.assign({}, ruleSuggestion, {
-          recordIndex: record.index
+          recordIndex: record.index,
+          textAnswerHint: true
+        });
+      }
+      var textOrdered = [localSuggestion, datasetSuggestion].filter(function (suggestion) {
+        return suggestion && suggestion.answerText && suggestion.exactQuestion && suggestion.confidence >= threshold;
+      }).sort(function (a, b) {
+        function priority(suggestion) {
+          if (suggestion.source === "local" && suggestion.answerKind === "correct") {
+            return 40;
+          }
+          if (suggestion.source === "dataset" && suggestion.answerKind === "correct") {
+            return 30;
+          }
+          if (suggestion.source === "local") {
+            return 20;
+          }
+          return 10;
+        }
+        return (priority(b) + (b.confidence || 0)) - (priority(a) + (a.confidence || 0));
+      });
+      if (textOrdered.length) {
+        return Object.assign({}, textOrdered[0], {
+          recordIndex: record.index,
+          textAnswerHint: true,
+          reason: (textOrdered[0].reason || "memoria testo") + " / suggerimento testo esatto"
         });
       }
       return {

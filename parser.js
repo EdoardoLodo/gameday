@@ -318,6 +318,9 @@
   function chooseContainer(controls) {
     var common = commonAncestor(controls);
     var selectors = config.questionBlockSelectors || [];
+    if (common && controls.indexOf(common) !== -1) {
+      common = common.parentElement;
+    }
 
     if (common && common !== document.body && matchesAny(common, selectors) && relevantControlCount(common) <= Math.max(controls.length + 6, 12)) {
       return common;
@@ -464,6 +467,69 @@
     return compactText(parts.join(" "));
   }
 
+  function lastQuestionFragment(text) {
+    var value = compactText(text);
+    var star = Math.max(value.lastIndexOf(" * "), value.lastIndexOf("* "));
+    if (star >= 0) {
+      value = compactText(value.slice(star).replace(/^\*\s*/, ""));
+    }
+    return value;
+  }
+
+  function textBetweenPreviousAndFirstControl(container, controls) {
+    if (!container || !controls.length || !container.contains(controls[0])) {
+      return "";
+    }
+    var sorted = controls.slice().sort(function (a, b) {
+      if (a === b) {
+        return 0;
+      }
+      return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+    var first = sorted[0];
+    var allControls = Array.prototype.slice.call(container.querySelectorAll("input, select, textarea")).filter(isSupportedControl);
+    var firstIndex = allControls.indexOf(first);
+    var previous = null;
+    for (var i = firstIndex - 1; i >= 0; i -= 1) {
+      if (controls.indexOf(allControls[i]) === -1) {
+        previous = allControls[i];
+        break;
+      }
+    }
+    if (!previous) {
+      return lastQuestionFragment(textBeforeFirstControl(container, controls));
+    }
+
+    var parts = [];
+    var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        var parent = node.parentElement;
+        if (!parent || isButtonLike(parent) || parent.tagName.toLowerCase() === "option") {
+          return NodeFilter.FILTER_REJECT;
+        }
+        if (!(previous.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        if (first.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        var label = parent.closest("label");
+        if (label && (isOptionLabel(label, controls) || label.contains(previous))) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    var node;
+    while ((node = walker.nextNode())) {
+      var text = compactText(node.nodeValue || "");
+      if (text) {
+        parts.push(text);
+      }
+    }
+    return lastQuestionFragment(parts.join(" "));
+  }
+
   function findQuestionText(container, controls) {
     var first = controls[0];
     var kind = first ? getControlKind(first) : "";
@@ -501,6 +567,11 @@
     }
 
     if (container) {
+      var contextual = textBetweenPreviousAndFirstControl(container, controls);
+      if (contextual && normalizeText(contextual).length > 2 && contextual.length < 600) {
+        return contextual;
+      }
+
       var selectors = config.questionTextSelectors || [];
       for (var i = 0; i < selectors.length; i += 1) {
         var candidates = [];
@@ -526,7 +597,7 @@
 
       var before = textBeforeFirstControl(container, controls);
       if (before) {
-        return before;
+        return lastQuestionFragment(before);
       }
 
       var fallback = elementTextWithoutButtons(container);
