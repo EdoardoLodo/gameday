@@ -134,6 +134,7 @@
       }
       cleaned = compactText(cleaned.replace(/^[\-\u2013\u2014]+\s*([\s\S]*?)\s*[\-\u2013\u2014]+$/, "$1"));
       cleaned = compactText(cleaned.replace(/^(?:(?:risposta|soluzione|valore corretto)\s*:\s*|(?:ovvero|cioe|cio\u00e8)\s*:?\s+)/i, ""));
+      cleaned = compactText(cleaned.replace(/\s+(?:nel\s+campo|all'interno\s+del\s+campo|qui\s+sotto|sottostante|da\s+inserire|da\s+cercare|tra\s+le\s+opzioni|nelle\s+opzioni|dalle\s+opzioni)\b.*$/i, ""));
     } while (cleaned && cleaned !== previous);
     return cleaned;
   };
@@ -448,7 +449,11 @@
       /\bcio[e\u00e8]\s+["'\u201c\u201d\u2018\u2019]?([^"',;\n()]{1,140})["'\u201c\u201d\u2018\u2019]?/i,
       /\brisposta\s*:\s*([^"',;\n()]{1,140})/i,
       /\bvalore corretto\s*:\s*([^"',;\n()]{1,140})/i,
-      /\bsoluzione\s*:\s*([^"',;\n()]{1,140})/i
+      /\bsoluzione\s*:\s*([^"',;\n()]{1,140})/i,
+      /\b(?:stringa|codice|testo|parola)\s+(?:corretta|corrispondente|richiesta|seguente)\s*(?:a)?\s*[:=]?\s*([^"',;\n()]{1,140})/i,
+      /\b(?:seleziona|selezionare|scegli|scegliere|cerca|cercare|scrivi|scrivere|inserisci|inserire)\s+(?:la\s+|il\s+)?(?:stringa|codice|testo|parola)\s+(?:corretta|corrispondente|richiesta|seguente)\s*(?:a)?\s*[:=]?\s*([^"',;\n()]{1,140})/i,
+      /\bcorrispondente\s+a\s*[:=]?\s*([^"',;\n()]{1,140})/i,
+      /\bcorrisponde\s+a\s*[:=]?\s*([^"',;\n()]{1,140})/i
     ].forEach(function (regex) {
       var keywordMatch = text.match(regex);
       if (keywordMatch) {
@@ -671,6 +676,62 @@
     return GH.Matcher && GH.Matcher.extractCodes ? GH.Matcher.extractCodes(text) : (String(text || "").match(/[+@#]?[a-zA-Z0-9][a-zA-Z0-9._-]{3,}/g) || []);
   }
 
+  function isTransformWord(value) {
+    return /^(tutto|tutta|tutti|tutte|solo|sola|maiuscolo|maiuscola|maiuscoli|maiuscole|minuscolo|minuscola|minuscoli|minuscole|contrario|inverso|invertito|vocali|consonanti|spazi|spazio|simboli|punteggiatura|caratteri|lettere|campo|sottostante|qui|sotto|scrivila|scrivilo)$/.test(normalizeText(value));
+  }
+
+  function cleanInlineTarget(value) {
+    return compactText(String(value || "")
+      .replace(/\s+(?:tutto|tutta|tutti|tutte|solo|sola)?\s*(?:in|con|senza|al|all'|allo|alla)\s+.*$/i, "")
+      .replace(/\s+(?:qui\s+sotto|nel\s+campo|sottostante|all'interno\s+del\s+campo)\b.*$/i, "")
+      .replace(/[.,;:!?]+$/g, ""));
+  }
+
+  function applyStringTransforms(text, target) {
+    var normalized = normalizeText(text);
+    var answer = String(target || "");
+    var wantsConsonants = /\bconsonanti\b/.test(normalized) && !/senza consonanti/.test(normalized);
+    var wantsVowels = /\bvocali\b/.test(normalized) && !/senza vocali|vocali assenti|vocali mancanti/.test(normalized);
+    if (!answer) {
+      return "";
+    }
+    if (/senza spazi|non considerando gli spazi|ignorando gli spazi/.test(normalized)) {
+      answer = withoutSpaces(answer);
+    }
+    if (/senza simboli|senza punteggiatura|escludendo i segni/.test(normalized)) {
+      answer = withoutSymbols(answer);
+    }
+    if (/vocali assenti|vocali mancanti/.test(normalized)) {
+      return missingVowels(answer);
+    }
+    if (/senza vocali/.test(normalized)) {
+      answer = removeVowels(answer);
+    } else if (wantsConsonants) {
+      answer = onlyConsonants(answer);
+    } else if (/senza consonanti|solo vocali|sole vocali/.test(normalized) || wantsVowels) {
+      answer = onlyVowels(answer);
+    }
+    if (/senza ripetizioni|non ripetut[aeiou]*|senza duplicati|una sola volta/.test(normalized)) {
+      answer = uniqueCharacters(answer);
+    } else if (/(?:vocali|consonanti|lettere)\s+(?:ripetut[aeiou]*|che\s+si\s+ripetono)|ripetizioni/.test(normalized)) {
+      answer = repeatedCharacters(answer);
+    }
+    if (/al contrario|inverti|inverso|ordine inverso/.test(normalized)) {
+      answer = reverseString(answer);
+    }
+    if (/minuscol|lettere minuscole|in minuscolo/.test(normalized)) {
+      answer = answer.toLowerCase();
+    }
+    if (/maiuscol|lettere maiuscole|in maiuscolo/.test(normalized)) {
+      answer = answer.toUpperCase();
+    }
+    return compactText(answer);
+  }
+
+  function hasComposableStringTransform(text) {
+    return /senza vocali|vocali assenti|vocali mancanti|vocali\s+(?:presenti|contenute|ripetut[aeiou]*|non ripetut[aeiou]*)|\bvocali\b.*senza ripetizioni|senza consonanti|consonanti\s+(?:presenti|contenute|ripetut[aeiou]*|non ripetut[aeiou]*)|\bconsonanti\b.*senza ripetizioni|scrivere\s+le\s+consonanti|riporta\s+le\s+consonanti|al contrario|inverti|inverso|ordine inverso|lettere minuscole|in minuscolo|minuscol|lettere maiuscole|in maiuscolo|maiuscol|senza spazi|non considerando gli spazi|ignorando gli spazi|senza simboli|senza punteggiatura/.test(normalizeText(text));
+  }
+
   function knownSiteTarget(text) {
     var normalized = normalizeText(text);
     var sites = config.knownSites || {};
@@ -696,15 +757,7 @@
 
   function extractTarget(record, kind) {
     var text = explicitSearchText(record);
-    var site = knownSiteTarget(text);
-    if (site) {
-      return site;
-    }
-
-    var urls = extractUrls(text);
-    if (urls.length && (kind === "url" || kind === "domain" || /url|sito|indirizzo|web|pagina|portale/.test(normalizeText(text)))) {
-      return urls[0].replace(/[.,;:!?]+$/, "");
-    }
+    var normalized = normalizeText(text);
 
     var namedQuoted = text.match(/\b(?:scritta|stringa|parola|testo|codice|url|sito|indirizzo|di)\s+["'\u201c\u201d\u2018\u2019]([^"'\u201c\u201d\u2018\u2019]{1,160})["'\u201c\u201d\u2018\u2019]/i);
     if (namedQuoted) {
@@ -716,13 +769,38 @@
       return quoted[quoted.length - 1];
     }
 
+    var urls = extractUrls(text);
+    if (urls.length && (kind === "url" || kind === "domain" || /url|sito|indirizzo|web|pagina|portale/.test(normalized))) {
+      return urls[0].replace(/[.,;:!?]+$/, "");
+    }
+
+    var site = knownSiteTarget(text);
+    if (site && /url|sito|indirizzo|web|pagina|portale|dominio/.test(normalized)) {
+      return site;
+    }
+
+    var phraseTarget = text.match(/\b(?:all'interno\s+di|all'interno\s+della|della\s+stringa|della\s+parola|del\s+testo|della\s+dicitura|di)\s+([a-zA-Z0-9+@#._-][a-zA-Z0-9+@#._\-\s]{1,140}?)(?=\s+(?:tutto|tutta|tutti|tutte|in|al|all'|allo|alla|senza|con|qui|nel|nella|tra|dalle|lettere\s+maiuscole|lettere\s+minuscole)\b|[?.!,;:]|$)/i);
+    if (phraseTarget && !isTransformWord(phraseTarget[1])) {
+      return cleanInlineTarget(phraseTarget[1]);
+    }
+
+    var reverseTarget = text.match(/\b(?:scrivi|scrivere|riscrivi|riscrivere|riporta|riportare|inserisci|inserire|trascrivi|trascrivere|immetti|immettere)\s+(?:al\s+contrario|invers[oa]|inverti(?:re)?)\s+(?:la\s+parola\s+|il\s+testo\s+|la\s+stringa\s+|il\s+nome\s+)?([a-zA-Z0-9+@#._-]{2,80})(?=\s|$)/i);
+    if (reverseTarget && !isTransformWord(reverseTarget[1])) {
+      return cleanInlineTarget(reverseTarget[1]);
+    }
+
+    var verbTarget = text.match(/\b(?:scrivi|scrivere|riscrivi|riscrivere|riporta|riportare|inserisci|inserire|trascrivi|trascrivere|immetti|immettere)\s+(?:la\s+parola\s+|il\s+testo\s+|la\s+stringa\s+|esattamente\s+)?([a-zA-Z0-9+@#._-]{2,80})(?=\s|$)/i);
+    if (verbTarget && !isTransformWord(verbTarget[1])) {
+      return cleanInlineTarget(verbTarget[1]);
+    }
+
     var wordAfterKeyword = text.match(/\b(?:parola|nome|stringa|testo|codice)\s+([a-zA-Z0-9+@#._-]{1,80})\b/i);
-    if (wordAfterKeyword && !/^(senza|con|non|considerando|ignorando|partendo)$/i.test(wordAfterKeyword[1])) {
+    if (wordAfterKeyword && !/^(senza|con|non|considerando|ignorando|partendo)$/i.test(wordAfterKeyword[1]) && !isTransformWord(wordAfterKeyword[1])) {
       return wordAfterKeyword[1];
     }
 
     var codes = extractCodes(text).filter(function (code) {
-      return !/^(indicare|inserire|seleziona|selezionare|codice|identificativo|caratteri|lettere|primi|ultimi|senza|vocali|consonanti)$/.test(normalizeText(code));
+      return !/^(indicare|inserire|seleziona|selezionare|scrivi|scrivere|riporta|riportare|trascrivi|trascrivere|codice|identificativo|caratteri|lettere|primi|ultimi|senza|vocali|consonanti)$/.test(normalizeText(code)) && !isTransformWord(code);
     });
     if (codes.length) {
       return codes[codes.length - 1].replace(/[.,;:!?]+$/, "");
@@ -745,6 +823,42 @@
 
   function onlyVowels(text) {
     return (String(text || "").match(/[aeiouAEIOU\u00e0\u00e8\u00e9\u00ec\u00f2\u00f3\u00f9\u00c0\u00c8\u00c9\u00cc\u00d2\u00d3\u00d9]/g) || []).join("");
+  }
+
+  function onlyConsonants(text) {
+    return (String(text || "").match(/\p{L}/gu) || []).filter(function (char) {
+      return !/[aeiouAEIOU\u00e0\u00e8\u00e9\u00ec\u00f2\u00f3\u00f9\u00c0\u00c8\u00c9\u00cc\u00d2\u00d3\u00d9]/.test(char);
+    }).join("");
+  }
+
+  function characterKey(char) {
+    return normalizeText(char).normalize("NFD").replace(/\p{M}/gu, "");
+  }
+
+  function uniqueCharacters(text) {
+    var seen = new Set();
+    return Array.from(String(text || "")).filter(function (char) {
+      var key = characterKey(char);
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    }).join("");
+  }
+
+  function repeatedCharacters(text) {
+    var chars = Array.from(String(text || ""));
+    var counts = new Map();
+    chars.forEach(function (char) {
+      var key = characterKey(char);
+      if (key) {
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    });
+    return chars.filter(function (char) {
+      return (counts.get(characterKey(char)) || 0) > 1;
+    }).join("");
   }
 
   function missingVowels(text) {
@@ -813,6 +927,103 @@
 
   function withoutSpaces(text) {
     return String(text || "").replace(/\s+/g, "");
+  }
+
+  function targetLooksSpecific(target) {
+    var normalized = normalizeText(target);
+    if (!normalized) {
+      return false;
+    }
+    return !/^(codice|identificativo|carattere|caratteri|stringa|parola|testo|campo|sottostante|iniziale|finale|partecipante|registrato)$/.test(normalized);
+  }
+
+  function removeUrlSuffix(text, normalizedQuestion) {
+    var answer = String(text || "");
+    var suffixes = [];
+    var match;
+    var regex = /senza\s+(?:il\s+|la\s+)?(?:punto\s+)?(?:\.|\bpunto\s+)?(com|it|org|net|eu|gov)\b/g;
+    while ((match = regex.exec(normalizedQuestion || ""))) {
+      suffixes.push("." + match[1]);
+    }
+    if (/senza\s+(?:estensione|dominio\s+di\s+primo\s+livello|tld)/.test(normalizedQuestion || "")) {
+      suffixes.push(".com", ".it", ".org", ".net", ".eu", ".gov");
+    }
+    suffixes.forEach(function (suffix) {
+      var escaped = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      answer = answer.replace(new RegExp(escaped + "(?=\\/?(?:$|[?#]))", "i"), "");
+    });
+    return answer.replace(/\/$/, "");
+  }
+
+  function ordinalNumber(value) {
+    var normalized = normalizeText(value).replace(/[^\p{L}\p{N}]/gu, "");
+    var words = {
+      primo: 1,
+      prima: 1,
+      secondo: 2,
+      seconda: 2,
+      terzo: 3,
+      terza: 3,
+      quarto: 4,
+      quarta: 4,
+      quinto: 5,
+      quinta: 5,
+      sesto: 6,
+      sesta: 6,
+      settimo: 7,
+      settima: 7,
+      ottavo: 8,
+      ottava: 8,
+      nono: 9,
+      nona: 9,
+      decimo: 10,
+      decima: 10,
+      undicesimo: 11,
+      undicesima: 11,
+      dodicesimo: 12,
+      dodicesima: 12,
+      tredicesimo: 13,
+      tredicesima: 13,
+      quattordicesimo: 14,
+      quattordicesima: 14,
+      quindicesimo: 15,
+      quindicesima: 15,
+      sedicesimo: 16,
+      sedicesima: 16,
+      diciassettesimo: 17,
+      diciassettesima: 17,
+      diciottesimo: 18,
+      diciottesima: 18,
+      diciannovesimo: 19,
+      diciannovesima: 19,
+      ventesimo: 20,
+      ventesima: 20
+    };
+    var digit = normalized.match(/^\d{1,3}/);
+    if (digit) {
+      return Number(digit[0]);
+    }
+    return words[normalized] || null;
+  }
+
+  function parseCharacterRange(text) {
+    var normalized = normalizeText(text);
+    var digitRange = normalized.match(/\b(?:dal|dalla)\s+(\d{1,3})(?:\s*[a-z\u00b0\u00ba]*)?(?:\s+carattere)?\s+(?:al|alla)\s+(\d{1,3})(?:\s*[a-z\u00b0\u00ba]*)?\b/);
+    if (digitRange) {
+      return {
+        start: Number(digitRange[1]),
+        end: Number(digitRange[2])
+      };
+    }
+    var token = "(\\d{1,3}(?:esim[oa]|[oa]|[\\u00b0\\u00ba])?|primo|prima|secondo|seconda|terzo|terza|quarto|quarta|quinto|quinta|sesto|sesta|settimo|settima|ottavo|ottava|nono|nona|decimo|decima|undicesimo|undicesima|dodicesimo|dodicesima|tredicesimo|tredicesima|quattordicesimo|quattordicesima|quindicesimo|quindicesima|sedicesimo|sedicesima|diciassettesimo|diciassettesima|diciottesimo|diciottesima|diciannovesimo|diciannovesima|ventesimo|ventesima)";
+    var match = normalized.match(new RegExp("\\b(?:dal|dalla)\\s+" + token + "(?:\\s+carattere)?\\s+(?:al|alla)\\s+" + token + "\\b"));
+    if (!match) {
+      return null;
+    }
+    return {
+      start: ordinalNumber(match[1]),
+      end: ordinalNumber(match[2])
+    };
   }
 
   function tokenizeMathExpression(expression) {
@@ -973,27 +1184,135 @@
     return null;
   }
 
+  function personalFieldValue(key) {
+    return GH.PersonalData && GH.PersonalData.getFieldValue ? GH.PersonalData.getFieldValue(key) : "";
+  }
+
+  function currentBandoYear() {
+    var value = personalFieldValue("annoBando");
+    var match = String(value || "").match(/\b20\d{2}\b/);
+    return match ? match[0] : "";
+  }
+
+  function isCurrentBandoQuestion(normalized) {
+    if (!/\bbando\b/.test(normalized) || /anno\s+di\s+uscita|anno\s+bando/.test(normalized)) {
+      return false;
+    }
+    return /attual|corrente|in\s+corso|click\s+day|seleziona|selezionare|scegli|scegliere|procedura|partecip|relativ[oa]|inail|isi/.test(normalized);
+  }
+
+  function scoreBandoOption(option, year, normalizedQuestion) {
+    var text = normalizeText(option);
+    var score = 0;
+    var years = text.match(/\b20\d{2}\b/g) || [];
+    if (!/\bbando\b/.test(text)) {
+      return -100;
+    }
+    score += 2;
+    if (/\bisi\b/.test(text)) {
+      score += 4;
+    }
+    if (/\binail\b/.test(text)) {
+      score += 4;
+    }
+    if (/\bisi\b/.test(normalizedQuestion) && /\bisi\b/.test(text)) {
+      score += 2;
+    }
+    if (/\binail\b/.test(normalizedQuestion) && /\binail\b/.test(text)) {
+      score += 2;
+    }
+    if (year) {
+      if (years.indexOf(year) !== -1) {
+        score += 6;
+      } else if (years.length) {
+        score -= 8;
+      }
+    }
+    if (/invitalia|agricoltura|voucher|recovery|pnrr|fondo|fondi|minister|innovazione|transizione|manager/.test(text)) {
+      score -= 4;
+    }
+    if (!/\b(?:isi|inail)\b/.test(text)) {
+      score -= 3;
+    }
+    return score;
+  }
+
+  function solveCurrentBando(record) {
+    if (!isChoiceRecord(record)) {
+      return null;
+    }
+    var normalized = normalizeText(record.questionText || "");
+    if (!isCurrentBandoQuestion(normalized)) {
+      return null;
+    }
+    var options = record.options || [];
+    if (!options.length) {
+      return null;
+    }
+    var year = currentBandoYear();
+    var ranked = options.map(function (option, index) {
+      return {
+        option: option,
+        index: index,
+        score: scoreBandoOption(option, year, normalized)
+      };
+    }).sort(function (a, b) {
+      return b.score - a.score;
+    });
+    var best = ranked[0];
+    var second = ranked[1];
+    if (!best || best.score < (year ? 8 : 6)) {
+      return null;
+    }
+    if (second && best.score - second.score < (year ? 3 : 2)) {
+      return null;
+    }
+    return compatibleSuggestion(record, best.option, 0.96, year ? ("bando attuale dai dati cliccatore " + year) : "bando attuale dalle opzioni");
+  }
+
   function solveStringRule(record) {
     var text = record.questionText || "";
     var normalized = normalizeText(text);
     var target;
     var answer;
     var n;
+    var range;
+
+    if (hasComposableStringTransform(text)) {
+      target = extractTarget(record, /url|sito|indirizzo|web|pagina|portale/.test(normalized) ? "url" : "string");
+      answer = target ? applyStringTransforms(text, target) : "";
+      if (target && answer && targetLooksSpecific(target)) {
+        return compatibleSuggestion(record, answer, 0.94, "trasformazione testuale composta");
+      }
+    }
 
     if (/indirizzo del sito|url richiesto|indirizzo sito|indirizzo web|pagina web/.test(normalized) &&
-        !/senza vocali|vocali assenti|senza consonanti|al contrario|inverti|inverso|lettere minuscole|in minuscolo|lettere maiuscole|in maiuscolo|senza spazi|non considerando gli spazi|senza simboli|senza punteggiatura|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|lettere pari|lettere dispari/.test(normalized)) {
+        !/senza vocali|vocali assenti|senza consonanti|al contrario|inverti|inverso|lettere minuscole|in minuscolo|lettere maiuscole|in maiuscolo|senza spazi|non considerando gli spazi|senza simboli|senza punteggiatura|senza\s+(?:il\s+|la\s+)?(?:punto\s+)?(?:\.|\bpunto\s+)?(?:com|it|org|net|eu|gov)\b|senza\s+(?:estensione|dominio\s+di\s+primo\s+livello|tld)|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|lettere pari|lettere dispari|dal\s+\S+\s+(?:carattere\s+)?al\s+\S+/.test(normalized)) {
       target = extractTarget(record, "url");
       return target ? compatibleSuggestion(record, target, 0.94, "indirizzo del sito") : null;
     }
     if (/\bdominio\b/.test(normalized)) {
       target = extractTarget(record, "domain");
       answer = extractDomain(target);
+      if (/senza\s+(?:il\s+|la\s+)?(?:punto\s+)?(?:\.|\bpunto\s+)?(?:com|it|org|net|eu|gov)\b|senza\s+(?:estensione|dominio\s+di\s+primo\s+livello|tld)/.test(normalized)) {
+        answer = removeUrlSuffix(answer, normalized);
+      }
       return answer ? compatibleSuggestion(record, answer, 0.94, "dominio estratto da URL") : null;
+    }
+    if (/senza\s+(?:il\s+|la\s+)?(?:punto\s+)?(?:\.|\bpunto\s+)?(?:com|it|org|net|eu|gov)\b|senza\s+(?:estensione|dominio\s+di\s+primo\s+livello|tld)/.test(normalized)) {
+      target = extractTarget(record, "url");
+      answer = removeUrlSuffix(target, normalized);
+      return target && answer ? compatibleSuggestion(record, answer, 0.94, "suffisso URL rimosso") : null;
     }
     if (/vocali assenti|vocali mancanti/.test(normalized)) {
       target = extractTarget(record, "string");
       answer = missingVowels(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.94, "vocali assenti") : null;
+    }
+    if (/vocali\s+(?:presenti|contenute)|solo\s+vocali|sole\s+vocali/.test(normalized)) {
+      target = extractTarget(record, "string");
+      answer = onlyVowels(target);
+      return target && answer ? compatibleSuggestion(record, answer, 0.93, "vocali presenti") : null;
     }
     if (/senza vocali/.test(normalized)) {
       target = extractTarget(record, "string");
@@ -1002,7 +1321,7 @@
     }
     if (/consonanti/.test(normalized) && /al contrario|inverti|inverso|ordine inverso/.test(normalized)) {
       target = extractTarget(record, "string");
-      answer = reverseString(removeVowels(target));
+      answer = reverseString(onlyConsonants(target));
       return target && answer ? compatibleSuggestion(record, answer, 0.94, "consonanti al contrario") : null;
     }
     if (/senza consonanti/.test(normalized)) {
@@ -1010,17 +1329,22 @@
       answer = onlyVowels(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.92, "solo vocali") : null;
     }
+    if (/consonanti\s+(?:presenti|contenute)|scrivere\s+le\s+consonanti|riporta\s+le\s+consonanti/.test(normalized)) {
+      target = extractTarget(record, "string");
+      answer = onlyConsonants(target);
+      return target && answer ? compatibleSuggestion(record, answer, 0.93, "consonanti presenti") : null;
+    }
     if (/al contrario|inverti|inverso/.test(normalized)) {
       target = extractTarget(record, "string");
       answer = reverseString(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.92, "stringa invertita") : null;
     }
-    if (/lettere minuscole|in minuscolo/.test(normalized)) {
+    if (/lettere minuscole|in minuscolo|minuscol/.test(normalized)) {
       target = extractTarget(record, "string");
       answer = target.toLowerCase();
       return target && answer ? compatibleSuggestion(record, answer, 0.91, "minuscole") : null;
     }
-    if (/lettere maiuscole|in maiuscolo/.test(normalized)) {
+    if (/lettere maiuscole|in maiuscolo|maiuscol/.test(normalized)) {
       target = extractTarget(record, "string");
       answer = target.toUpperCase();
       return target && answer ? compatibleSuggestion(record, answer, 0.91, "maiuscole") : null;
@@ -1039,6 +1363,15 @@
       target = extractTarget(record, "string");
       answer = wordInitials(target);
       return target && answer ? compatibleSuggestion(record, answer, 0.94, "iniziali delle parole") : null;
+    }
+    range = parseCharacterRange(text);
+    if (range && range.start && range.end && range.end >= range.start) {
+      target = extractTarget(record, /codice identificativo/.test(normalized) ? "code" : "string");
+      if (!targetLooksSpecific(target)) {
+        return null;
+      }
+      answer = target ? Array.from(target).slice(range.start - 1, range.end).join("") : "";
+      return answer ? compatibleSuggestion(record, answer, 0.94, "caratteri dal " + range.start + " al " + range.end) : null;
     }
     if (/(prim[ie].*partendo dalla fine|partendo dalla fine.*prim[ie]|dalla fine.*prim[ie])/.test(normalized)) {
       n = parseN(text);
@@ -1078,16 +1411,37 @@
 
     var normalized = normalizeText(record.questionText);
     var stringSuggestion = null;
-    var hasStringTransform = /senza vocali|vocali assenti|vocali mancanti|senza consonanti|al contrario|inverti|inverso|lettere minuscole|in minuscolo|lettere maiuscole|in maiuscolo|senza spazi|non considerando gli spazi|ignorando gli spazi|senza simboli|senza punteggiatura|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|carattere iniziale|iniziali delle parole|partendo dalla fine|lettere pari|lettere dispari|\bdominio\b/.test(normalized);
+    var personalSuggestion = null;
+    var bandoSuggestion = solveCurrentBando(record);
+    var hasStringTransform = /senza vocali|vocali assenti|vocali mancanti|vocali\s+(?:presenti|contenute|ripetut[aeiou]*|non ripetut[aeiou]*)|\bvocali\b.*senza ripetizioni|senza consonanti|consonanti\s+(?:presenti|contenute|ripetut[aeiou]*|non ripetut[aeiou]*)|\bconsonanti\b.*senza ripetizioni|al contrario|inverti|inverso|lettere minuscole|in minuscolo|minuscol|lettere maiuscole|in maiuscolo|maiuscol|senza spazi|non considerando gli spazi|ignorando gli spazi|senza simboli|senza punteggiatura|senza\s+(?:il\s+|la\s+)?(?:punto\s+)?(?:\.|\bpunto\s+)?(?:com|it|org|net|eu|gov)\b|senza\s+(?:estensione|dominio\s+di\s+primo\s+livello|tld)|ultim[ie]|prim[ie]|caratteri finali|caratteri iniziali|carattere iniziale|iniziali delle parole|partendo dalla fine|lettere pari|lettere dispari|dal\s+\S+\s+(?:carattere\s+)?al\s+\S+|\bdominio\b/.test(normalized);
+    var referencesPersonalData = /codice\s+identificativo|codice\s+azienda|codice\s+domanda|token|codice\s+fiscale|partita\s+iva|\bpiva\b|\bpec\b|email|telefono|cellulare|partecipante\s+registrato|persona\s+registrata|data\s+di\s+nascita|luogo\s+di\s+nascita|ragione\s+sociale|azienda\s+richiedente/.test(normalized);
+    if (bandoSuggestion && bandoSuggestion.confidence > 0) {
+      return bandoSuggestion;
+    }
+
     var dateSuggestion = solveDate(record);
     if (dateSuggestion && dateSuggestion.confidence > 0 && isTextRecord(record) && !hasStringTransform) {
       return dateSuggestion;
+    }
+
+    if (referencesPersonalData && GH.PersonalData && GH.PersonalData.solve) {
+      personalSuggestion = GH.PersonalData.solve(record);
+      if (personalSuggestion && personalSuggestion.confidence > 0) {
+        return personalSuggestion;
+      }
     }
 
     if (hasStringTransform) {
       stringSuggestion = solveStringRule(record);
       if (stringSuggestion && stringSuggestion.confidence > 0) {
         return stringSuggestion;
+      }
+    }
+
+    if (GH.PersonalData && GH.PersonalData.solve) {
+      personalSuggestion = GH.PersonalData.solve(record);
+      if (personalSuggestion && personalSuggestion.confidence > 0) {
+        return personalSuggestion;
       }
     }
 

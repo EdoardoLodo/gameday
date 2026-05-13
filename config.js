@@ -29,7 +29,7 @@
     datasetTrust: {
       useCorrectAnswers: true,
       useWrongAnswers: true,
-      useLastSelectedAnswersAsFallback: true,
+      useLastSelectedAnswersAsFallback: false,
       correctAnswerBaseConfidence: 0.96,
       lastSelectedBaseConfidence: 0.68,
       lastSelectedExactQuestionConfidence: 0.80,
@@ -58,9 +58,21 @@
 
     localLearning: {
       promoteCandidatesOnlyAfterFinalPage: false,
-      useCandidateAnswersForSuggestions: true,
+      useCandidateAnswersForSuggestions: false,
       candidateBaseConfidence: 0.64,
       correctAnswerBaseConfidence: 0.96
+    },
+
+    personalData: {
+      enabled: true,
+      sourceUrlIncludes: [
+        "/datiCliccatore",
+        "#/datiCliccatore",
+        "datiCliccatore"
+      ],
+      storageKey: "gamedayPersonalData",
+      maxRawTextLength: 20000,
+      maxValues: 250
     },
 
     performance: {
@@ -219,7 +231,11 @@
       instagram: "https://www.instagram.com",
       facebook: "https://www.facebook.com",
       youtube: "https://www.youtube.com",
-      linkedin: "https://www.linkedin.com"
+      linkedin: "https://www.linkedin.com",
+      reddit: "https://www.reddit.com",
+      wikipedia: "https://www.wikipedia.org",
+      inail: "https://www.inail.it",
+      invitalia: "https://www.invitalia.it"
     }
   };
 

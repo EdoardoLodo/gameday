@@ -125,6 +125,11 @@
     }
   }
 
+  function urlProtocol(text) {
+    var match = String(text || "").trim().match(/^(https?):\/\//i);
+    return match ? match[1].toLowerCase() : "";
+  }
+
   function extractUrls(text) {
     return (String(text || "").match(/\bhttps?:\/\/[^\s"'<>]+|\bwww\.[^\s"'<>]+/gi) || []).map(normalizeUrl).filter(Boolean);
   }
@@ -168,6 +173,11 @@
     if (!left || !right) {
       return 0;
     }
+    var leftProtocol = urlProtocol(answer);
+    var rightProtocol = urlProtocol(option);
+    if (left === right && leftProtocol && rightProtocol && leftProtocol !== rightProtocol) {
+      return 0.80;
+    }
     if (left === right) {
       return 1;
     }
@@ -210,6 +220,9 @@
     var leftUrls = extractUrls(answer);
     var rightUrls = extractUrls(option);
     if (leftUrls.length && rightUrls.length && leftUrls[0] === rightUrls[0]) {
+      if (leftProtocol && rightProtocol && leftProtocol !== rightProtocol) {
+        return 0.80;
+      }
       return 0.97;
     }
     var leftDate = normalizeDate(answer);
@@ -732,6 +745,12 @@
     }
 
     if (ruleSuggestion && datasetSuggestion && datasetSuggestion.answerText) {
+      if (ruleSuggestion.source === "personalData" && ruleSuggestion.confidence >= threshold) {
+        return Object.assign({}, ruleSuggestion, {
+          reason: (ruleSuggestion.reason || "dati cliccatore salvati") + " / preferito al dataset",
+          recordIndex: record.index
+        });
+      }
       var similarity = answersSimilarity(ruleSuggestion.answerText, datasetSuggestion.answerText);
       if (similarity >= 0.86) {
         return {
@@ -782,6 +801,9 @@
         }
         if (suggestion.source === "rules") {
           return 80;
+        }
+        if (suggestion.source === "personalData") {
+          return 75;
         }
         if (suggestion.source === "local" && suggestion.answerKind === "correct") {
           return 70;

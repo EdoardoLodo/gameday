@@ -386,6 +386,11 @@
         debug("Errore snapshot click", error);
       });
     }, true);
+
+    window.addEventListener("gamedayPersonalDataUpdated", function () {
+      clearSuggestionCaches();
+      scheduleRun("personal_data_updated", 50);
+    });
   }
 
   function attachMutationObserver() {
@@ -542,6 +547,16 @@
           return value;
         }) : Promise.resolve(null);
       },
+      readPersonalData: function () {
+        return GH.PersonalData ? GH.PersonalData.readData() : Promise.resolve(null);
+      },
+      refreshPersonalData: function () {
+        return GH.PersonalData ? GH.PersonalData.captureFromPage("console").then(function (value) {
+          clearSuggestionCaches();
+          scheduleRun("personal_data_refreshed", 50);
+          return value;
+        }) : Promise.resolve(null);
+      },
       run: function () {
         return runHighlighter("console");
       },
@@ -561,6 +576,9 @@
     }
     if (GH.DatasetLoader && config.useDataset !== false) {
       datasetIndex = await GH.DatasetLoader.load();
+    }
+    if (GH.PersonalData && (config.personalData || {}).enabled !== false) {
+      await GH.PersonalData.init();
     }
     if (GH.Learner && config.useLocalLearning !== false) {
       await GH.Learner.init();
